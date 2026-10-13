@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14202B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CryptoKite">
+<title>CryptoKite</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Crypto<span>Kite</span></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="signal" aria-selected="true">Signal</button>
+    <button role="tab" data-tab="scan" aria-selected="false">Scanner</button>
+    <button role="tab" data-tab="bt" aria-selected="false">Backtest</button>
+    <button role="tab" data-tab="track" aria-selected="false">Track</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="seg" role="group" aria-label="Market"><button data-mode="spot" aria-pressed="true">Spot</button><button data-mode="futures" aria-pressed="false">Futures</button></div>
+  <span class="dot" id="status" title="Ready"></span>
+  <button class="iconbtn" id="btnSettings" aria-label="Settings">⚙</button>
+</header>
+
+<main>
+  <div id="banner"></div>
+
+  <section class="panel on" id="tab-signal">
+    <div class="coinbar">
+      <form id="symForm"><input type="text" id="symInput" placeholder="Coin, e.g. ETH" autocomplete="off" autocapitalize="characters" aria-label="Coin"><button class="btn" type="submit">Open</button></form>
+      <div class="chips" id="wl" style="max-width:100%"></div>
+    </div>
+    <div class="pricebar">
+      <span class="sym" id="pSym">–</span><span class="px" id="pPrice">–</span><span id="pChg" class="hint"></span><span id="pConn" class="hint"></span>
+      <div class="tfseg" id="tfSeg"><button data-tf="15m" aria-pressed="false">15m</button><button data-tf="1h" aria-pressed="false">1h</button><button data-tf="4h" aria-pressed="true">4h</button><button data-tf="1d" aria-pressed="false">1d</button></div>
+    </div>
+    <div id="decision" class="decision"><span class="spin"></span>Loading…</div>
+    <div class="trackbar">
+      <button class="btn" id="btnTrack">📌 Track this signal</button>
+      <span class="hint">Adds it to its own live chart on the Track tab so you can watch, without Binance, whether the stop or targets actually get hit.</span>
+    </div>
+    <div class="card chartcard">
+      <div class="ctools">
+        <div class="chips" id="layerChips"></div>
+        <div class="zb"><button id="zOut" aria-label="Zoom out">−</button><button id="zIn" aria-label="Zoom in">+</button><button id="zReset" aria-label="Reset view" title="Reset view">⟲</button></div>
+      </div>
+      <div id="chartRead"></div>
+      <div class="chartbox" id="chart"></div>
+      <div class="legend"><span><i style="border-color:var(--accent)"></i>EMA 20</span><span><i style="border-color:var(--amber)"></i>EMA 50</span><span><i style="border-color:var(--mute)"></i>EMA 100</span><span>Drag to move · pinch or +/− to zoom · long-press for crosshair</span></div>
+    </div>
+    <div class="grid" id="cards">
+      <div class="card" id="lookCard"></div><div class="card" id="timeCard"></div><div class="card" id="planCard"></div>
+      <div class="card" id="checkCard"></div><div class="card" id="mtfCard"></div><div class="card" id="driveCard"></div>
+      <div class="card w2" id="valCard"></div><div class="card" id="voteCard"></div>
+      <div class="card" id="extraCard"></div><div class="card w2" id="logCard"></div>
+    </div>
+    <p class="fine">Analysis tool, not financial advice. A score is not a probability of winning. Always use a stop-loss and risk 1–2% of your account at most. Data: Binance public market data; nothing is sent anywhere else.</p>
+  </section>
+
+  <section class="panel" id="tab-scan">
+    <div class="card">
+      <div class="bar-row">
+        <label class="f">Timeframe<select id="scTf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label>
+        <label class="f">Coins<select id="scLimit"><option>10</option><option selected>20</option><option>40</option></select></label>
+        <button class="btn" id="scGo">Scan market</button>
+        <div class="prog" aria-hidden="true"><i id="scProg"></i></div><span class="hint" id="scStatus"></span>
+      </div>
+      <div class="chips" id="scFilter" style="margin-bottom:8px"><button class="chip" aria-pressed="true" data-f="all">All</button><button class="chip" aria-pressed="false" data-f="long">Long ≥ +0.25</button><button class="chip" aria-pressed="false" data-f="short">Short ≤ −0.25</button></div>
+      <div class="scroll"><table id="scTable"><thead></thead><tbody></tbody></table></div>
+      <div class="empty" id="scEmpty">Press <b>Scan market</b> to rank the most liquid coins. The ensemble score is the main column.</div>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-bt">
+    <div class="card">
+      <h3>Backtest <small>same code as the live signal · fees + slippage on both sides</small></h3>
+      <div class="form">
+        <label class="f">Strategy<select id="btStrat"></select></label>
+        <label class="f">Coin<input type="text" id="btSym" style="text-transform:uppercase"></label>
+        <label class="f">Timeframe<select id="btTf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label>
+        <label class="f">Entry threshold<input type="number" id="btTh" step="0.01" value="0.30"></label>
+        <label class="f">Stop (× ATR)<input type="number" id="btSl" step="0.1" value="1.2"></label>
+        <label class="f">Target (× ATR)<input type="number" id="btTp" step="0.1" value="2.2"></label>
+        <label class="f">Max bars held<input type="number" id="btHold" step="1" value="40"></label>
+        <label class="f">Fee % / side<input type="number" id="btFee" step="0.01" value="0.05"></label>
+        <label class="f">Slippage % / side<input type="number" id="btSlip" step="0.01" value="0.02"></label>
+        <label class="chk"><input type="checkbox" id="btBias" checked> EMA50/100 trend only</label>
+        <label class="chk"><input type="checkbox" id="btShort" checked> Allow shorts (futures)</label>
+        <button class="btn" id="btGo">Run backtest</button>
+        <button class="btn ghost" id="labGo">Compare strategies</button>
+        <button class="btn ghost" id="mlabGo">Market Lab (many coins)</button>
+      </div>
+    </div>
+    <div id="mlabOut"></div><div id="labOut"></div><div id="btOut"><div class="empty">Choose settings and press <b>Run backtest</b>. The last 1,500 candles are tested.</div></div>
+  </section>
+
+  <section class="panel" id="tab-track">
+    <div class="chips" id="trackSubnav" style="margin-bottom:10px">
+      <button class="chip" data-sub="list" aria-pressed="true">Tracked</button>
+      <button class="chip" data-sub="signals" aria-pressed="false">Signal list</button>
+    </div>
+    <div id="trackList"></div>
+    <div id="trackSignals" style="display:none"></div>
+    <div id="trackDetail" style="display:none"></div>
+  </section>
+</main>
+
+<nav class="nav" aria-label="Sections">
+  <button data-tab="signal" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M4 18l5-6 4 3 7-9"/><path d="M4 21h16"/></svg>Signal</button>
+  <button data-tab="scan" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>Scanner</button>
+  <button data-tab="bt" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Backtest</button>
+  <button data-tab="track" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Track</button>
+  <button id="navSettings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>Settings</button>
+</nav>
+
+<div class="modal" id="modal"><div class="sheet">
+  <h3>Settings</h3>
+  <div class="row"><label class="f">Theme<select id="setTheme"><option value="auto">Automatic</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div>
+  <div class="row"><label class="f"><input type="checkbox" id="setSound" style="width:auto;margin-right:6px">Beep on live alerts</label></div>
+  <div class="row"><label class="f"><input type="checkbox" id="setNotify" style="width:auto;margin-right:6px">Browser notifications when a signal appears</label></div>
+  <div class="row"><label class="f"><input type="checkbox" id="setAutoAdd" style="width:auto;margin-right:6px">Auto-add the daily top 10 signals to Track (as pending entries)</label><p class="hint">Runs once a day, only while the app is open (there is no server to run it in the background). See the Track tab’s Signal list to review or turn individual ones off.</p></div>
+  <div class="row"><label class="f">Spot API address (optional)<input type="text" id="setSpot" placeholder="https://api.binance.com"></label>
+  <label class="f" style="margin-top:8px">Futures API address (optional)<input type="text" id="setFut" placeholder="https://fapi.binance.com"></label>
+  <p class="hint">Only needed if Binance is blocked on your network. Leave empty normally.</p></div>
+  <div class="row"><label class="f">Crypto news API key (optional)<input type="text" id="setNewsKey" placeholder="paste a CryptoPanic API key"></label>
+  <p class="hint">Adds a coin-specific news-sentiment line to the Outlook card (never to the BUY/SELL signal itself - news can't be honestly backtested). Free key: <a href="https://cryptopanic.com/developers/api/" target="_blank" rel="noopener">cryptopanic.com/developers</a>. Works fine without one - a market-mood (Fear &amp; Greed) line still shows either way.</p></div>
+  <div class="row" style="display:flex;gap:8px"><button class="btn" id="setSave">Save</button><button class="btn ghost" id="setClose">Close</button><button class="btn ghost" id="setReset" style="margin-left:auto">Reset saved data</button></div>
+</div></div>
+<div id="toastHost"></div>
+
+<script src="js/util.js"></script><script src="js/indicators.js"></script><script src="js/engine.js"></script>
+<script src="js/structure.js"></script><script src="js/strategies.js"></script><script src="js/forecast.js"></script><script src="js/backtest.js"></script>
+<script src="js/data.js"></script><script src="js/news.js"></script><script src="js/sim.js"></script><script src="js/chart.js"></script><script src="js/app.js"></script><script src="js/app2.js"></script><script src="js/app3.js"></script>
+<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{});}</script>
+</body></html>
