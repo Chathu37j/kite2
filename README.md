@@ -101,6 +101,18 @@ review, and each candidate has **Add as pending** and **Track now** (an immediat
 buttons for doing it manually. Nothing here places a real order anywhere - see the note on real exchange
 trading below for why, and what the safe path to that looks like.
 
+
+## Fixed: Spot can't short, and Spot/Futures now scan separately
+
+Spot trading can only ever be long - there is no borrowing-and-selling-what-you-don't-own on spot - so a
+bearish reading there is "avoid / reduce", never an actual short. The daily scanner was wrongly offering
+"Short" candidates under Spot mode; it is now long-only there, Futures still gets both directions, and each
+mode keeps its **own** daily signal list and its own once-a-day schedule, so switching the Spot/Futures toggle
+shows the right list instead of a mix. A one-time cleanup removes any still-pending "short" entries an earlier
+version wrongly auto-armed under Spot (anything already filled or closed is left alone - only untouched
+pending ones, since those never actually happened). The Signal list also now has a **timeframe** picker
+(15m/1h/4h/1d, default 4h) instead of being fixed to 4h.
+
 ## Why this does NOT place real orders on Binance/Bybit/etc.
 
 Two separate, serious reasons kept real order placement out of the public web app:

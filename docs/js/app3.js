@@ -334,12 +334,14 @@
   }
 
   /* ============================== daily signal list: finds and (optionally) arms the day's best setups ============================== */
-  const SIGNAL_TF = '4h', SCAN_COINS = 40, SCAN_WANT = 10, PENDING_WINDOW_MS = 24 * 3600000;
+  const SCAN_COINS = 40, SCAN_WANT = 10, PENDING_WINDOW_MS = 24 * 3600000, SCAN_TFS = ['15m', '1h', '4h', '1d'];
   const todayStr = () => new Date().toISOString().slice(0, 10);
+  const sigKey = mode => 'signals_' + mode, dateKey = mode => 'lastScanDate_' + mode;
+  const scanTf = () => (SCAN_TFS.includes(store.get('scanTf', '4h')) ? store.get('scanTf', '4h') : '4h');
 
   async function trackFromCandidate(cand, kind) {
     const base = {
-      id: genId(), symbol: cand.symbol, mode: cand.mode, tf: SIGNAL_TF, direction: cand.direction,
+      id: genId(), symbol: cand.symbol, mode: cand.mode, tf: cand.tf, direction: cand.direction,
       stop: cand.stop, tp1: cand.tp1, tp2: cand.tp2, tp3: cand.tp3, originalStop: cand.stop,
       hits: [], stopHistory: [], trailAuto: true, source: 'daily-scan', closed: false,
     };
@@ -354,67 +356,80 @@
     return base;
   }
 
-  async function runDailyScan(mode) {
+  /* Spot can only ever be long - there is no borrowing-and-selling-what-you-don't-own on spot, so a
+     bearish reading there means "avoid / reduce", never a short position. Only Futures mode is offered
+     short candidates. */
+  async function runDailyScan(mode, tf) {
+    tf = tf || scanTf();
     const list = (await D.tickers(mode)).slice(0, SCAN_COINS);
     const rows = [];
     for (const t of list) {
       try {
-        const df = S.dropForming(await D.klinesInc(mode, t.symbol, SIGNAL_TF, 500));
+        const df = S.dropForming(await D.klinesInc(mode, t.symbol, tf, 500));
         if (df.close.length < 150) continue;
         const pre = E.computeSignalSeries(df), data = SG.computeAll(df, pre.comp), reg = SG.regime(data);
         const n = df.close.length, ens = data.ens[n - 1], comp = pre.comp[n - 1];
         if (Math.abs(ens) < 0.25) continue;
-        const dir = ens > 0 ? 1 : -1, r = E.analyzeTimeframe(df, pre);
+        const dir = ens > 0 ? 1 : -1;
+        if (mode === 'spot' && dir === -1) continue;  // spot: long-only, see note above
+        const r = E.analyzeTimeframe(df, pre);
         const plan = E.buildRiskLevels(r.last_close, r.atr_pct, dir, mode === 'futures');
         const agree = Math.sign(comp) === Math.sign(ens) ? 1 : 0.6;
         const quality = Math.abs(ens) * agree * (reg.name === 'Trending' ? 1.15 : reg.name === 'Ranging' ? 0.85 : 1);
-        rows.push({ symbol: t.symbol, mode, direction: dir, ens, comp, regime: reg.name, price: r.last_close, atrPct: r.atr_pct,
+        rows.push({ symbol: t.symbol, mode, tf, direction: dir, ens, comp, regime: reg.name, price: r.last_close, atrPct: r.atr_pct,
                    stop: plan.stop_loss, tp1: plan.tp1, tp2: plan.tp2, tp3: plan.tp3, quality, scannedAt: Date.now() });
       } catch (e) {}
     }
     rows.sort((a, b) => b.quality - a.quality);
     const top = rows.slice(0, SCAN_WANT);
-    TR.signals = top; store.set('signals', top); store.set('lastScanDate', todayStr());
+    if (mode === S.mode) TR.signals = top;
+    store.set(sigKey(mode), top); store.set(dateKey(mode), todayStr());
     if (store.get('autoAdd', true)) {
       for (const cand of top) {
-        const recent = TR.items.some(it => it.symbol === cand.symbol && it.source === 'daily-scan' && !it.closed && (Date.now() - (it.armedAt || it.trackedAt || 0)) < 26 * 3600000);
+        const recent = TR.items.some(it => it.symbol === cand.symbol && it.mode === mode && it.source === 'daily-scan' && !it.closed && (Date.now() - (it.armedAt || it.trackedAt || 0)) < 26 * 3600000);
         if (!recent) { const it = await trackFromCandidate(cand, 'pending'); cand.addedId = it.id; }
       }
-      store.set('signals', top); saveItems();
+      store.set(sigKey(mode), top); saveItems();
     }
     return top;
   }
   let scanBusy = false;
   async function maybeRunDailyScan(force) {
     if (scanBusy) return;
-    if (!force && store.get('lastScanDate', '') === todayStr()) { TR.signals = store.get('signals', []); return; }
+    const mode = S.mode;
+    if (!force && store.get(dateKey(mode), '') === todayStr()) { TR.signals = store.get(sigKey(mode), []); return; }
     scanBusy = true; S.setStatus('busy', "Finding today's signals");
-    try { await runDailyScan(S.mode); S.toast(`Daily scan: ${TR.signals.length} signal${TR.signals.length === 1 ? '' : 's'} found${store.get('autoAdd', true) ? ', added as pending entries' : ''}`); }
+    try { const top = await runDailyScan(mode); S.toast(`Daily scan (${mode}): ${top.length} signal${top.length === 1 ? '' : 's'} found${store.get('autoAdd', true) ? ', added as pending entries' : ''}`); }
     catch (e) { S.toast('Daily scan failed: ' + e.message); }
     finally { scanBusy = false; S.setStatus('ok', ''); if (S.tab === 'track') { renderList(); renderSignals(); } }
   }
+  /* loads the right list for whichever mode is now active, without triggering a network call */
+  function loadSignalsForMode() { TR.signals = store.get(sigKey(S.mode), []); }
 
   function signalCardHtml(cand) {
     const dirTxt = cand.direction === 1 ? 'Long' : 'Short';
     const already = TR.items.find(it => it.id === cand.addedId);
     const status = already ? statusPill(already) : '<span class="pill">Not added</span>';
     return `<div class="trow" data-sym="${esc(cand.symbol)}">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b>${esc(baseOf(cand.symbol))}</b> <span class="hint">${cand.mode} · ${SIGNAL_TF} · ${dirTxt} · ensemble ${fs(cand.ens, 2)} · ${esc(cand.regime)}</span></div>${status}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b>${esc(baseOf(cand.symbol))}</b> <span class="hint">${cand.mode} · ${cand.tf} · ${dirTxt} · ensemble ${fs(cand.ens, 2)} · ${esc(cand.regime)}</span></div>${status}</div>
       <div class="hint" style="margin-top:4px">Price ${fmtP(cand.price)} · Stop ${fmtP(cand.stop)} · T1 ${fmtP(cand.tp1)} · T2 ${fmtP(cand.tp2)} · T3 ${fmtP(cand.tp3)}</div>
       ${already ? '' : `<div class="bar-row" style="margin:8px 0 0"><button class="btn ghost sm" data-arm="${esc(cand.symbol)}">Add as pending (auto-fill)</button><button class="btn ghost sm" data-now="${esc(cand.symbol)}">Track now</button></div>`}
     </div>`;
   }
   function renderSignals() {
-    const el = $('#trackSignals'), sigs = TR.signals || [];
-    const intro = `<div class="card" style="margin-bottom:10px"><h3>Daily signal list <small>${sigs.length ? 'from ' + fmtDT(sigs[0].scannedAt) : ''}</small></h3><p class="hint">Once a day, the ${SCAN_COINS} most liquid coins are scanned on ${SIGNAL_TF} and ranked by ensemble score, agreement with the composite score, and market regime. This only runs while the app is open - there is no server to run it in the background, so if the app is not opened on a given day, that day is skipped. ${store.get('autoAdd', true) ? 'Auto-add is ON: the top ' + SCAN_WANT + ' are armed as pending entries below and fill automatically if price pulls back into range within 24h.' : 'Auto-add is OFF (turn it on in ⚙ Settings) - review the list and add any you want manually.'}</p>
-      <div class="bar-row" style="margin-top:8px"><button class="btn ghost sm" id="scanNow">Scan now</button></div></div>`;
-    el.innerHTML = intro + (sigs.length ? sigs.map(signalCardHtml).join('') : '<div class="empty">No signals met the bar today (|ensemble| \u2265 0.25). Check back later or press Scan now.</div>');
-    $('#scanNow').addEventListener('click', () => maybeRunDailyScan(true));
-    $$('#trackSignals [data-arm]').forEach(b => b.addEventListener('click', async () => { b.disabled = true; const cand = TR.signals.find(c => c.symbol === b.dataset.arm); const it = await trackFromCandidate(cand, 'pending'); cand.addedId = it.id; store.set('signals', TR.signals); renderSignals(); renderList(); }));
-    $$('#trackSignals [data-now]').forEach(b => b.addEventListener('click', async () => { b.disabled = true; const cand = TR.signals.find(c => c.symbol === b.dataset.now); const it = await trackFromCandidate(cand, 'now'); cand.addedId = it.id; store.set('signals', TR.signals); renderSignals(); renderList(); S.toast(`Tracking ${baseOf(cand.symbol)} now`); }));
+    const el = $('#trackSignals'), sigs = TR.signals || [], mode = S.mode;
+    const spotNote = mode === 'spot' ? ' Spot can only go long (there is no shorting without borrowing), so only Buy candidates are listed here - switch to Futures for Sell/Short candidates.' : '';
+    const intro = `<div class="card" style="margin-bottom:10px"><h3>Daily signal list <small>${mode} · ${sigs.length ? 'from ' + fmtDT(sigs[0].scannedAt) : 'not scanned yet'}</small></h3><p class="hint">Once a day per mode, the ${SCAN_COINS} most liquid ${mode} coins are scanned on the timeframe below and ranked by ensemble score, agreement with the composite score, and market regime. This only runs while the app is open - there is no server to run it in the background, so a day the app is never opened is skipped.${spotNote} ${store.get('autoAdd', true) ? 'Auto-add is ON: the top ' + SCAN_WANT + ' are armed as pending entries below and fill automatically if price pulls back into range within 24h.' : 'Auto-add is OFF (turn it on in ⚙ Settings) - review the list and add any you want manually.'}</p>
+      <div class="bar-row" style="margin-top:8px"><label class="f">Timeframe<select id="scanTfSel">${SCAN_TFS.map(t => `<option ${t === scanTf() ? 'selected' : ''}>${t}</option>`).join('')}</select></label><button class="btn ghost sm" id="scanNow">Scan now</button></div></div>`;
+    el.innerHTML = intro + (sigs.length ? sigs.map(signalCardHtml).join('') : `<div class="empty">No ${mode} signals met the bar${mode === 'spot' ? ' (long-only)' : ''} today (|ensemble| \u2265 0.25). Check back later, try a different timeframe, or press Scan now.</div>`);
+    $('#scanTfSel').addEventListener('change', e => store.set('scanTf', e.target.value));
+    $('#scanNow').addEventListener('click', () => { S.setStatus('busy', 'Scanning'); runDailyScan(S.mode, $('#scanTfSel').value).then(top => { S.toast(`Scan (${S.mode}, ${$('#scanTfSel').value}): ${top.length} signal${top.length === 1 ? '' : 's'} found`); S.setStatus('ok', ''); renderList(); renderSignals(); }).catch(e => { S.toast('Scan failed: ' + e.message); S.setStatus('err', e.message); }); });
+    $$('#trackSignals [data-arm]').forEach(b => b.addEventListener('click', async () => { b.disabled = true; const cand = TR.signals.find(c => c.symbol === b.dataset.arm); const it = await trackFromCandidate(cand, 'pending'); cand.addedId = it.id; store.set(sigKey(S.mode), TR.signals); renderSignals(); renderList(); }));
+    $$('#trackSignals [data-now]').forEach(b => b.addEventListener('click', async () => { b.disabled = true; const cand = TR.signals.find(c => c.symbol === b.dataset.now); const it = await trackFromCandidate(cand, 'now'); cand.addedId = it.id; store.set(sigKey(S.mode), TR.signals); renderSignals(); renderList(); S.toast(`Tracking ${baseOf(cand.symbol)} now`); }));
   }
 
   $$('[data-tab]').forEach(b => b.addEventListener('click', () => { if (b.dataset.tab !== 'track') { stopFeed(); if (TR.openId) closeDetail(); } }));
+  $$('.seg button[data-mode]').forEach(b => b.addEventListener('click', () => { loadSignalsForMode(); if (S.tab === 'track') { renderList(); if ($('#trackSignals').style.display !== 'none') renderSignals(); } maybeRunDailyScan(); }));
   $$('#trackSubnav .chip').forEach(b => b.addEventListener('click', () => {
     $$('#trackSubnav .chip').forEach(x => x.setAttribute('aria-pressed', x === b));
     if (TR.openId) closeDetail();
@@ -423,7 +438,14 @@
     if (showSignals) renderSignals();
   }));
 
-  TR.signals = store.get('signals', []);
+  /* one-time cleanup: remove any still-pending "short" entries that an earlier version wrongly auto-armed
+     under Spot mode (shorting is impossible on spot) - only pending ones, since those never actually traded */
+  {
+    const before = TR.items.length;
+    TR.items = TR.items.filter(it => !(it.source === 'daily-scan' && it.mode === 'spot' && it.direction === -1 && it.status === 'pending' && !it.closed));
+    if (TR.items.length !== before) { saveItems(); S.toast(`Removed ${before - TR.items.length} invalid "short" entr${before - TR.items.length === 1 ? 'y' : 'ies'} under Spot - spot cannot short.`); }
+  }
+  loadSignalsForMode();
   renderList();
   setTimeout(() => { replayAll(); maybeRunDailyScan(); }, 2500);  // catch up on anything missed since the app was last open
   window.CKTrack = { TR, checkHit, onClosed, replayItem, replayAll, runDailyScan, maybeRunDailyScan, sim: SIM, renderList, openDetail };  // debug/test hook, harmless in normal use

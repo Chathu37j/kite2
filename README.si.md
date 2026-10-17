@@ -64,6 +64,16 @@ app එක නොහැරපු දවසක් skip වෙනවා) coins ව
 එකට ආවම පැය 24ක් ඇතුළත auto-fill වෙනවා, නැත්නම් expire වෙනවා. Off කළොත් list එකම පේනවා, **Add as pending** සහ
 **Track now** buttons වලින් manual ව එකතු කරගන්න පුළුවන්. මේවා කිසිවක් real order එකක් නෙවෙයි.
 
+
+## Fix: Spot වලට Short දාන්න බෑ, Spot/Futures දැන් වෙන වෙනම scan වෙනවා
+
+Spot trading වලදී **Long විතරයි** කරන්න පුළුවන් - ණයට අරන් විකුණන එකක් (shorting) spot වලට නෑ. කලින් daily
+scanner එක Spot mode එකේදීත් "Short" candidates දෙන්න පටන් ගත්තා - ඒක දැන් fix කරලා, Spot = Long-only, Futures
+= දිශාව දෙකම. Spot සහ Futures දැන් **වෙනම** daily list එකක් සහ වෙනම scan schedule එකක් තියාගන්නවා - mode toggle
+එක මාරු කරාම හරි list එකම පේනවා. Spot යටතේ කලින් වැරදීමෙන් auto-add වුණු, තවම pending තියෙන "Short" entries
+ඉබේම එකපාරක් clean වෙනවා (already filled/closed ඒවා වෙනස් කරන්නේ නෑ). Signal list එකට **Timeframe** picker
+එකකුත් (15m/1h/4h/1d, default 4h) එකතු කළා.
+
 ## ඇයි Binance/Bybit වලට real trade දාන්නේ නෑ
 
 1. Exchange වල order දාන endpoints (API key/secret ඕන ඒවා) සාමාන්‍යයෙන් browser එකකින් කෙලින්ම call කරන්න ඉඩ දෙන්නේ නෑ (CORS restriction) — ඒක exchange එකේම security නීතියක්.
